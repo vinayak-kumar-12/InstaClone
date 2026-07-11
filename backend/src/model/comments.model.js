@@ -82,10 +82,24 @@ const deleteComment = async (id) => {
   return result.rows[0];
 };
 
+const getPostCommentsCount = async (post_id) => {
+  const result = await pool.query(
+    `
+    SELECT COUNT(*) AS total_comments
+    FROM comments
+    WHERE post_id = $1;
+    `,
+    [post_id],
+  );
+
+  return Number(result.rows[0].total_comments);
+};
+
 module.exports = {
   createComment,
   getCommentsByPost,
   getCommentById,
   updateComment,
   deleteComment,
+  getPostCommentsCount,
 };

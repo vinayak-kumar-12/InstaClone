@@ -81,6 +81,32 @@ const searchUsersModel = async (query, currentUserId) => {
   return result.rows;
 };
 
+const updateUserProfilePic = async (id, profilePicUrl) => {
+  const result = await pool.query(
+    `
+    UPDATE users
+    SET profile_pic = $1
+    WHERE id = $2
+    RETURNING *;
+    `,
+    [profilePicUrl, id]
+  );
+  return result.rows[0];
+};
+
+const updateProfileDetails = async (id, { bio, website, location }) => {
+  const result = await pool.query(
+    `
+    UPDATE users
+    SET bio = $1, website = $2, location = $3
+    WHERE id = $4
+    RETURNING *;
+    `,
+    [bio, website, location, id]
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   createUser,
   findUserByEmail,
@@ -90,4 +116,6 @@ module.exports = {
   lockAccount,
   resetFailedAttempts,
   searchUsersModel,
+  updateUserProfilePic,
+  updateProfileDetails,
 };

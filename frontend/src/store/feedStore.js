@@ -121,8 +121,8 @@ export const useFeedStore = create((set, get) => ({
   fetchSavedPostIds: async () => {
     try {
       const res = await api.get("/saved");
-      const savedPosts = res.data.savedPosts || [];
-      const savedIds = new Set(savedPosts.map((p) => p.post_id));
+      const savedPosts = res.data.posts || [];
+      const savedIds = new Set(savedPosts.map((p) => p.id));
       set({ savedPostIds: savedIds });
     } catch (err) {
       console.error("Failed to load saved posts:", err);

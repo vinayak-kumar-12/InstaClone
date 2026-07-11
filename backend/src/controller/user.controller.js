@@ -6,6 +6,9 @@ const {
   lockAccount,
   resetFailedAttempts,
   searchUsersModel,
+  updateUserProfilePic,
+  updateProfileDetails,
+  findUserById,
 } = require("../model/user.model");
 const {
   createRefreshToken,
@@ -305,6 +308,197 @@ const searchUsers = asyncHandler(async (req, res) => {
   });
 });
 
+const { uploadStream } = require("../utils/cloudinaryUpload");
+const cloudinary = require("../config/cloudinary");
+
+const getPublicIdFromUrl = (url) => {
+  if (!url) return null;
+  const parts = url.split("/upload/");
+  if (parts.length < 2) return null;
+  const afterUpload = parts[1];
+  const pathParts = afterUpload.split("/");
+  if (pathParts[0].startsWith("v") && !isNaN(pathParts[0].substring(1))) {
+    pathParts.shift();
+  }
+  const publicIdWithExtension = pathParts.join("/");
+  const lastDotIndex = publicIdWithExtension.lastIndexOf(".");
+  if (lastDotIndex !== -1) {
+    return publicIdWithExtension.substring(0, lastDotIndex);
+  }
+  return publicIdWithExtension;
+};
+
+// ======================= UPDATE PROFILE =======================
+const updateProfile = asyncHandler(async (req, res) => {
+  const { bio, website, location } = req.body;
+  const userId = req.user.id;
+
+  // character limits: bio 150, website 100, location 50
+  if (bio !== undefined && bio.length > 150) {
+    throw new AppError("Bio cannot exceed 150 characters", 400);
+  }
+  if (website !== undefined && website.length > 100) {
+    throw new AppError("Website cannot exceed 100 characters", 400);
+  }
+  if (location !== undefined && location.length > 50) {
+    throw new AppError("Location cannot exceed 50 characters", 400);
+  }
+
+  // Validate website if it is provided and not empty
+  if (website && website.trim() !== "") {
+    try {
+      const urlToTest = website.startsWith("http://") || website.startsWith("https://") ? website : "https://" + website;
+      new URL(urlToTest);
+    } catch (e) {
+      throw new AppError("Invalid website URL format", 400);
+    }
+  }
+
+  const updatedUser = await updateProfileDetails(userId, {
+    bio: bio !== undefined ? bio : "",
+    website: website !== undefined ? website : "",
+    location: location !== undefined ? location : "",
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Profile updated successfully",
+    data: {
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        bio: updatedUser.bio,
+        profilePic: updatedUser.profile_pic,
+        website: updatedUser.website,
+        location: updatedUser.location,
+      },
+    },
+  });
+});
+
+// ======================= UPDATE PROFILE PIC =======================
+const updateProfilePic = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  if (!req.file) {
+    throw new AppError("No image file provided", 400);
+  }
+
+  // Validate mimetype: JPG, JPEG, PNG, WEBP
+  const allowedMimetypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+  if (!allowedMimetypes.includes(req.file.mimetype)) {
+    throw new AppError("Invalid image type. Supported formats: JPG, JPEG, PNG, WEBP", 400);
+  }
+
+  // Max size 5 MB
+  if (req.file.size > 5 * 1024 * 1024) {
+    throw new AppError("Image size cannot exceed 5 MB", 400);
+  }
+
+  const user = await findUserById(userId);
+  const oldPicUrl = user ? user.profile_pic : null;
+
+  // Upload new image to Cloudinary (use folder "instaclone/profiles")
+  const uploadResult = await uploadStream(req.file.buffer, "instaclone/profiles");
+  const newPicUrl = uploadResult.secure_url;
+
+  // Save new image URL in DB
+  const updatedUser = await updateUserProfilePic(userId, newPicUrl);
+
+  // Delete previous Cloudinary image if it exists and was a Cloudinary URL
+  if (oldPicUrl && oldPicUrl.includes("res.cloudinary.com")) {
+    const oldPublicId = getPublicIdFromUrl(oldPicUrl);
+    if (oldPublicId) {
+      try {
+        await cloudinary.uploader.destroy(oldPublicId);
+      } catch (err) {
+        logger.error(`Failed to delete old profile pic from Cloudinary: ${err.message}`);
+      }
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Profile picture updated successfully",
+    data: {
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        bio: updatedUser.bio,
+        profilePic: updatedUser.profile_pic,
+        website: updatedUser.website,
+        location: updatedUser.location,
+      },
+    },
+  });
+});
+
+// ======================= DELETE PROFILE PIC =======================
+const deleteProfilePic = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  const user = await findUserById(userId);
+  const oldPicUrl = user ? user.profile_pic : null;
+
+  // Clear in DB
+  const updatedUser = await updateUserProfilePic(userId, "");
+
+  // Delete old from Cloudinary
+  if (oldPicUrl && oldPicUrl.includes("res.cloudinary.com")) {
+    const oldPublicId = getPublicIdFromUrl(oldPicUrl);
+    if (oldPublicId) {
+      try {
+        await cloudinary.uploader.destroy(oldPublicId);
+      } catch (err) {
+        logger.error(`Failed to delete profile pic from Cloudinary: ${err.message}`);
+      }
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Profile picture removed successfully",
+    data: {
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        bio: updatedUser.bio,
+        profilePic: updatedUser.profile_pic,
+        website: updatedUser.website,
+        location: updatedUser.location,
+      },
+    },
+  });
+});
+
+// ======================= GET USER PROFILE BY ID =======================
+const getUserProfile = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const user = await findUserById(userId);
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        bio: user.bio,
+        profilePic: user.profile_pic,
+        website: user.website,
+        location: user.location,
+      },
+    },
+  });
+});
+
 module.exports = {
   signUp,
   login,
@@ -312,4 +506,8 @@ module.exports = {
   logout,
   getCurrentUser,
   searchUsers,
+  updateProfile,
+  updateProfilePic,
+  deleteProfilePic,
+  getUserProfile,
 };

@@ -17,7 +17,9 @@ const postDB = async () => {
     await client.query(`
       ALTER TABLE users 
       ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS lock_until TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL;
+      ADD COLUMN IF NOT EXISTS lock_until TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS website VARCHAR(100) DEFAULT '',
+      ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT '';
     `);
 
     // Create indexes if they don't exist

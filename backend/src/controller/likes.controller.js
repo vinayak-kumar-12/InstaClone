@@ -12,21 +12,35 @@ const toggleLike = async (req, res) => {
     const { postId } = req.params;
 
     const liked = await isLiked(user_id, postId);
+    let isLikedNow = false;
 
     if (liked) {
       await removeLike(user_id, postId);
+      isLikedNow = false;
+    } else {
+      await addLike(user_id, postId);
+      isLikedNow = true;
+    }
 
-      return res.status(200).json({
-        success: true,
-        message: "Post unliked.",
+    // Always calculate from database
+    const likesCount = await getPostLikesCount(postId);
+
+    // Emit live Socket.IO update
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("postLikeUpdate", {
+        postId: Number(postId),
+        likesCount,
+        userId: user_id,
+        isLiked: isLikedNow,
       });
     }
 
-    await addLike(user_id, postId);
-
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: "Post liked.",
+      message: isLikedNow ? "Post liked." : "Post unliked.",
+      likesCount,
+      isLiked: isLikedNow,
     });
   } catch (error) {
     console.error("Toggle Like Error:", error);

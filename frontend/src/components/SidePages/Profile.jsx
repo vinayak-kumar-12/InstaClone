@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
 import { useChatStore } from "../../store/chatStore";
+import { useSocketStore } from "../../store/socketStore";
 import { ProfileSkeleton } from "../Skeletons";
-import { Grid, Heart, MessageCircle, UserCheck, UserPlus, Settings, X, Edit3, Bookmark, Share2, Loader2 } from "lucide-react";
+import { Grid, Heart, MessageCircle, UserCheck, UserPlus, Settings, X, Edit3, Bookmark, Share2, Loader2, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../../services/api";
 import { useFeedStore } from "../../store/feedStore";
@@ -38,6 +39,7 @@ const Profile = () => {
   // States
   const [profileUser, setProfileUser] = useState(null);
   const [posts, setPosts] = useState([]);
+  const [savedPosts, setSavedPosts] = useState([]);
   const [stats, setStats] = useState({ followers: 0, following: 0 });
   const [isFollowingState, setIsFollowingState] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,8 +54,10 @@ const Profile = () => {
   // Edit Profile modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [editBio, setEditBio] = useState("");
-  const [editName, setEditName] = useState("");
-  const [editPic, setEditPic] = useState("");
+  const [editWebsite, setEditWebsite] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [validationErrors, setValidationErrors] = useState({});
+  const [showPicModal, setShowPicModal] = useState(false);
 
   // Post View Modal State
   const [selectedPost, setSelectedPost] = useState(null);
@@ -64,6 +68,10 @@ const Profile = () => {
   const [activeTab, setActiveTab] = useState("posts");
 
   const { savedPostIds, savePost, fetchSavedPostIds } = useFeedStore();
+
+  // Refs
+  const fileInputRef = useRef(null);
+  const bioRef = useRef(null);
 
 
   const isMe = !userId || Number(userId) === Number(currentUser?.id) || userId === "me";
@@ -261,29 +269,331 @@ const Profile = () => {
     }
   };
 
+  // Socket.IO event listeners for likes and comments count sync
+  const socket = useSocketStore((state) => state.socket);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handlePostLikeUpdate = ({ postId, likesCount }) => {
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes_count: likesCount } : p))
+      );
+      setSavedPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes_count: likesCount } : p))
+      );
+      setSelectedPost((prev) => {
+        if (prev && prev.id === postId) {
+          return { ...prev, likes_count: likesCount };
+        }
+        return prev;
+      });
+    };
+
+    const handlePostCommentUpdate = ({ postId, commentsCount, comment, commentId, type }) => {
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, comments_count: commentsCount } : p))
+      );
+      setSavedPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, comments_count: commentsCount } : p))
+      );
+      setSelectedPost((prev) => {
+        if (prev && prev.id === postId) {
+          return { ...prev, comments_count: commentsCount };
+        }
+        return prev;
+      });
+
+      setSelectedPost((prev) => {
+        if (prev && prev.id === postId) {
+          if (type === "add" && comment) {
+            setComments((prevComments) => {
+              if (prevComments.some((c) => c.id === comment.id)) return prevComments;
+              return [...prevComments, comment];
+            });
+          } else if (type === "delete" && commentId) {
+            setComments((prevComments) => prevComments.filter((c) => c.id !== commentId));
+          }
+        }
+        return prev;
+      });
+    };
+
+    socket.on("postLikeUpdate", handlePostLikeUpdate);
+    socket.on("postCommentUpdate", handlePostCommentUpdate);
+
+    return () => {
+      socket.off("postLikeUpdate", handlePostLikeUpdate);
+      socket.off("postCommentUpdate", handlePostCommentUpdate);
+    };
+  }, [socket]);
+
+  // Sync saved posts state on savedPostIds change (to support instant removal)
+  useEffect(() => {
+    if (isMe) {
+      setSavedPosts((prev) => prev.filter((p) => savedPostIds.has(p.id)));
+    }
+  }, [savedPostIds, isMe]);
+
+  // ESC key handler for post details modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setSelectedPost(null);
+      }
+    };
+    if (selectedPost) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedPost]);
+
+  const fetchSavedPosts = async () => {
+    if (!isMe) return;
+    try {
+      const res = await api.get("/saved");
+      setSavedPosts(res.data.posts || []);
+    } catch (err) {
+      console.error("Failed to fetch saved posts:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isMe && activeTab === "saved") {
+      fetchSavedPosts();
+    }
+  }, [activeTab, isMe, targetUserId]);
+
   // Open Edit Profile modal
   const openEditProfile = () => {
-    setEditBio(currentUser.bio || "");
-    setEditName(currentUser.name || "");
-    setEditPic(currentUser.profile_pic || "");
+    setEditBio(profileUser?.bio || currentUser?.bio || "");
+    setEditWebsite(profileUser?.website || currentUser?.website || "");
+    setEditLocation(profileUser?.location || currentUser?.location || "");
+    setValidationErrors({});
     setShowEditModal(true);
   };
 
-  const handleSaveProfile = (e) => {
+  const handleBioChange = (e) => {
+    const val = e.target.value;
+    if (val.length <= 150) {
+      setEditBio(val);
+    }
+  };
+
+  // Auto-resize bio textarea in modal
+  useEffect(() => {
+    if (showEditModal && bioRef.current) {
+      bioRef.current.style.height = "auto";
+      bioRef.current.style.height = bioRef.current.scrollHeight + "px";
+    }
+  }, [showEditModal, editBio]);
+
+  const handleSaveProfile = async (e) => {
     e.preventDefault();
-    updateUserProfileLocally({
-      bio: editBio,
-      name: editName,
-      profile_pic: editPic || "https://i.pravatar.cc/150",
-    });
-    setProfileUser((prev) => ({
-      ...prev,
-      bio: editBio,
-      name: editName,
-      profile_pic: editPic || "https://i.pravatar.cc/150",
-    }));
-    setShowEditModal(false);
-    toast.success("Profile details updated locally!");
+    setValidationErrors({});
+    const errors = {};
+
+    if (editBio.length > 150) {
+      errors.bio = "Bio cannot exceed 150 characters";
+    }
+    if (editWebsite.length > 100) {
+      errors.website = "Website cannot exceed 100 characters";
+    }
+    if (editLocation.length > 50) {
+      errors.location = "Location cannot exceed 50 characters";
+    }
+
+    if (editWebsite && editWebsite.trim() !== "") {
+      try {
+        const urlToTest = editWebsite.startsWith("http://") || editWebsite.startsWith("https://") ? editWebsite : "https://" + editWebsite;
+        new URL(urlToTest);
+      } catch (err) {
+        errors.website = "Please enter a valid website URL";
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+
+    const loadingToast = toast.loading("Updating profile...");
+    try {
+      const res = await api.put("/auth/profile", {
+        bio: editBio,
+        website: editWebsite,
+        location: editLocation,
+      });
+
+      if (res.data.success) {
+        const updatedUser = res.data.data.user;
+        
+        // Update local authStore user object
+        updateUserProfileLocally({
+          bio: updatedUser.bio,
+          website: updatedUser.website,
+          location: updatedUser.location,
+        });
+
+        // Update local page state profileUser
+        setProfileUser((prev) => ({
+          ...prev,
+          bio: updatedUser.bio,
+          website: updatedUser.website,
+          location: updatedUser.location,
+        }));
+
+        setShowEditModal(false);
+        toast.success("Profile updated successfully!");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || "Failed to update profile");
+    } finally {
+      toast.dismiss(loadingToast);
+    }
+  };
+
+  const handleProfilePicClick = () => {
+    if (isMe) {
+      setShowPicModal(true);
+    }
+  };
+
+  const handleUploadClick = () => {
+    setShowPicModal(false);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate type
+    const allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Only JPG, JPEG, PNG and WEBP files are allowed.");
+      return;
+    }
+
+    // Validate size (5 MB = 5 * 1024 * 1024)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5 MB.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("profilePic", file);
+
+    const loadingToast = toast.loading("Uploading profile photo...");
+    try {
+      const res = await api.put("/auth/profile-pic", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      if (res.data.success) {
+        const newPicUrl = res.data.data.user.profilePic;
+        
+        // Update local authStore user object
+        updateUserProfileLocally({
+          profile_pic: newPicUrl,
+          profilePic: newPicUrl,
+        });
+
+        // Update local page state profileUser
+        setProfileUser((prev) => ({
+          ...prev,
+          profile_pic: newPicUrl,
+          profilePic: newPicUrl,
+        }));
+
+        toast.success("Profile photo updated!");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || "Failed to upload profile photo");
+    } finally {
+      toast.dismiss(loadingToast);
+      e.target.value = "";
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setShowPicModal(false);
+    const loadingToast = toast.loading("Removing profile photo...");
+    try {
+      const res = await api.delete("/auth/profile-pic");
+      if (res.data.success) {
+        const newPicUrl = "";
+        
+        // Update local authStore user object
+        updateUserProfileLocally({
+          profile_pic: newPicUrl,
+          profilePic: newPicUrl,
+        });
+
+        // Update local page state profileUser
+        setProfileUser((prev) => ({
+          ...prev,
+          profile_pic: newPicUrl,
+          profilePic: newPicUrl,
+        }));
+
+        toast.success("Profile photo removed!");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to remove profile photo");
+    } finally {
+      toast.dismiss(loadingToast);
+    }
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (window.confirm("Are you sure you want to delete this post?")) {
+      const loadingToast = toast.loading("Deleting post...");
+      try {
+        await api.delete(`/posts/${postId}`);
+        toast.success("Post deleted successfully.");
+        // Close modal
+        setSelectedPost(null);
+        // Remove post from state
+        setPosts((prev) => prev.filter((p) => p.id !== postId));
+        setSavedPosts((prev) => prev.filter((p) => p.id !== postId));
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to delete post.");
+      } finally {
+        toast.dismiss(loadingToast);
+      }
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (window.confirm("Delete this comment?")) {
+      try {
+        const res = await api.delete(`/comments/${commentId}`);
+        if (res.data.success) {
+          setComments((prev) => prev.filter((c) => c.id !== commentId));
+          const newCount = res.data.commentsCount;
+          setSelectedPost((prev) => ({ ...prev, comments_count: newCount }));
+          setPosts((prev) =>
+            prev.map((p) => (p.id === selectedPost.id ? { ...p, comments_count: newCount } : p))
+          );
+          setSavedPosts((prev) =>
+            prev.map((p) => (p.id === selectedPost.id ? { ...p, comments_count: newCount } : p))
+          );
+          toast.success("Comment deleted.");
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to delete comment.");
+      }
+    }
   };
 
   if (isLoading) {
@@ -316,14 +626,31 @@ const Profile = () => {
       <div className="flex flex-col sm:flex-row items-center sm:items-start gap-8 sm:gap-16 border-b border-zinc-900/80 pb-10 mb-8 relative z-10">
         
         {/* Profile picture with subtle low-saturation gradient ring */}
-        <div className="relative flex-shrink-0 group">
+        <div 
+          onClick={handleProfilePicClick}
+          className={`relative flex-shrink-0 group ${isMe ? "cursor-pointer" : ""}`}
+        >
           <div className="absolute inset-0 bg-gradient-to-tr from-purple-950/40 via-zinc-800 to-blue-950/40 rounded-full p-[3px] transition duration-500 group-hover:rotate-180 pointer-events-none" />
           <img
-            src={profileUser?.profile_pic || "https://i.pravatar.cc/150"}
+            src={profileUser?.profile_pic || profileUser?.profilePic || "https://i.pravatar.cc/150"}
             alt="Profile Avatar"
             className="w-32 h-32 sm:w-36 sm:h-36 rounded-full object-cover p-1 bg-black relative z-10 transition duration-300 group-hover:scale-98"
           />
+          {isMe && (
+            <div className="absolute inset-0 bg-black/45 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-300 z-20">
+              <span className="text-[10px] font-bold text-zinc-200 tracking-wider">CHANGE</span>
+            </div>
+          )}
         </div>
+        {isMe && (
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".jpg,.jpeg,.png,.webp"
+            className="hidden"
+          />
+        )}
 
         <div className="space-y-5 flex-1 text-center sm:text-left">
           {/* Top Info Bar */}
@@ -403,9 +730,24 @@ const Profile = () => {
           </div>
 
           {/* User Bio Details */}
-          <div className="space-y-1">
+          <div className="space-y-2 mt-2">
             <h1 className="font-extrabold text-sm text-zinc-200">@{profileUser?.username}</h1>
             <p className="text-sm text-zinc-400 leading-relaxed whitespace-pre-wrap">{profileUser?.bio || "No bio yet."}</p>
+            {profileUser?.website && (
+              <a
+                href={profileUser.website.startsWith("http") ? profileUser.website : `https://${profileUser.website}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-blue-400 hover:underline block font-semibold"
+              >
+                {profileUser.website}
+              </a>
+            )}
+            {profileUser?.location && (
+              <span className="text-xs text-zinc-550 block font-medium">
+                📍 {profileUser.location}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -451,42 +793,81 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* User Post Images Grid */}
-      {posts.length === 0 ? (
-        <div className="text-center py-20 border border-zinc-900 bg-zinc-950/20 rounded-2xl p-8 relative z-10">
-          <Grid className="mx-auto text-zinc-700 mb-3" size={40} />
-          <h3 className="text-md font-bold text-zinc-300">No Posts Yet</h3>
-          <p className="text-zinc-500 text-xs mt-1">When this user shares photos, they will appear here.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 gap-3 sm:gap-6 relative z-10">
-          {posts.map((post) => (
-            <div
-              key={post.id}
-              onClick={() => openComments(post)}
-              className="aspect-square bg-zinc-900 relative group overflow-hidden rounded-xl border border-zinc-950 cursor-pointer shadow-lg hover:shadow-zinc-950/50 transition duration-300"
-            >
-              <img
-                src={post.media_url}
-                alt="Post media"
-                className="w-full h-full object-cover transition duration-500 ease-out group-hover:scale-105"
-              />
-              {/* Overlay hover details */}
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-300 ease-out backdrop-blur-[2px]">
-                <div className="flex gap-8 text-white text-base font-extrabold transform translate-y-2 group-hover:translate-y-0 transition duration-300 ease-out">
-                  <span className="flex items-center gap-2">
-                    <Heart size={18} className="fill-white text-white" />
-                    <span>{post.likes_count || 0}</span>
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <MessageCircle size={18} className="fill-white text-white" />
-                    <span>{post.comments_count || 0}</span>
-                  </span>
+      {/* User Post Images Grid / Saved Grid */}
+      {activeTab === "posts" ? (
+        posts.length === 0 ? (
+          <div className="text-center py-20 border border-zinc-900 bg-zinc-950/20 rounded-2xl p-8 relative z-10 animate-fade-in">
+            <Grid className="mx-auto text-zinc-700 mb-3" size={40} />
+            <h3 className="text-md font-bold text-zinc-300">No Posts Yet</h3>
+            <p className="text-zinc-500 text-xs mt-1">When this user shares photos, they will appear here.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3 sm:gap-6 relative z-10 animate-fade-in">
+            {posts.map((post) => (
+              <div
+                key={post.id}
+                onClick={() => openComments(post)}
+                className="aspect-square bg-zinc-900 relative group overflow-hidden rounded-xl border border-zinc-950 cursor-pointer shadow-lg hover:shadow-zinc-950/50 transition duration-300"
+              >
+                <img
+                  src={post.media_url}
+                  alt="Post media"
+                  className="w-full h-full object-cover transition duration-500 ease-out group-hover:scale-105"
+                />
+                {/* Overlay hover details */}
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-300 ease-out backdrop-blur-[2px]">
+                  <div className="flex gap-8 text-white text-base font-extrabold transform translate-y-2 group-hover:translate-y-0 transition duration-300 ease-out">
+                    <span className="flex items-center gap-2">
+                      <Heart size={18} className="fill-white text-white" />
+                      <span>{post.likes_count || 0}</span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <MessageCircle size={18} className="fill-white text-white" />
+                      <span>{post.comments_count || 0}</span>
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
+      ) : (
+        savedPosts.length === 0 ? (
+          <div className="text-center py-20 border border-zinc-900 bg-zinc-950/20 rounded-2xl p-8 relative z-10 animate-fade-in">
+            <Bookmark className="mx-auto text-zinc-700 mb-3" size={40} />
+            <h3 className="text-md font-bold text-zinc-300">No Saved Posts Yet</h3>
+            <p className="text-zinc-500 text-xs mt-1">Posts you save will appear here.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3 sm:gap-6 relative z-10 animate-fade-in">
+            {savedPosts.map((post) => (
+              <div
+                key={post.id}
+                onClick={() => openComments(post)}
+                className="aspect-square bg-zinc-900 relative group overflow-hidden rounded-xl border border-zinc-950 cursor-pointer shadow-lg hover:shadow-zinc-950/50 transition duration-300"
+              >
+                <img
+                  src={post.media_url}
+                  alt="Saved post media"
+                  className="w-full h-full object-cover transition duration-500 ease-out group-hover:scale-105"
+                />
+                {/* Overlay hover details */}
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-300 ease-out backdrop-blur-[2px]">
+                  <div className="flex gap-8 text-white text-base font-extrabold transform translate-y-2 group-hover:translate-y-0 transition duration-300 ease-out">
+                    <span className="flex items-center gap-2">
+                      <Heart size={18} className="fill-white text-white" />
+                      <span>{post.likes_count || 0}</span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <MessageCircle size={18} className="fill-white text-white" />
+                      <span>{post.comments_count || 0}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       )}
 
 
@@ -544,46 +925,131 @@ const Profile = () => {
 
       {/* EDIT PROFILE MODAL */}
       {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden">
+        <div 
+          onClick={() => setShowEditModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden cursor-default animate-scale-in"
+          >
             <div className="flex justify-between items-center p-4 border-b border-zinc-850">
-              <h3 className="font-bold text-md">Edit Profile Details</h3>
-              <button onClick={() => setShowEditModal(false)} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+              <h3 className="font-bold text-md">Edit Profile</h3>
+              <button onClick={() => setShowEditModal(false)} className="text-zinc-400 hover:text-white cursor-pointer"><X size={20} /></button>
             </div>
             <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
               <div>
-                <label className="text-xs text-zinc-500 block mb-1">Display Name</label>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full h-11 px-3 bg-zinc-900 border border-zinc-800 rounded-xl outline-none focus:border-zinc-700 text-sm"
-                  placeholder="Your Name"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-zinc-500 block mb-1">Profile Photo URL</label>
-                <input
-                  type="text"
-                  value={editPic}
-                  onChange={(e) => setEditPic(e.target.value)}
-                  className="w-full h-11 px-3 bg-zinc-900 border border-zinc-800 rounded-xl outline-none focus:border-zinc-700 text-sm"
-                  placeholder="URL to profile image"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-zinc-500 block mb-1">Bio</label>
+                <label className="text-xs text-zinc-400 block mb-1.5 font-bold">Bio</label>
                 <textarea
+                  ref={bioRef}
                   value={editBio}
-                  onChange={(e) => setEditBio(e.target.value)}
-                  className="w-full h-24 p-3 bg-zinc-900 border border-zinc-800 rounded-xl outline-none focus:border-zinc-700 text-sm resize-none"
+                  onChange={handleBioChange}
+                  className="w-full min-h-[80px] p-3 bg-zinc-900 border border-zinc-800 rounded-xl outline-none focus:border-zinc-700 text-sm resize-none transition text-white"
                   placeholder="Tell us about yourself..."
+                  maxLength={150}
                 />
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-[10px] text-red-500">{validationErrors.bio}</span>
+                  <span className="text-[10px] text-zinc-500 font-semibold">{editBio.length}/150</span>
+                </div>
               </div>
 
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1.5 font-bold">Website</label>
+                <input
+                  type="text"
+                  value={editWebsite}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 100) {
+                      setEditWebsite(e.target.value);
+                    }
+                  }}
+                  className="w-full h-11 px-3 bg-zinc-900 border border-zinc-800 rounded-xl outline-none focus:border-zinc-700 text-sm transition text-white"
+                  placeholder="Website URL (e.g. example.com)"
+                  maxLength={100}
+                />
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-[10px] text-red-500">{validationErrors.website}</span>
+                  <span className="text-[10px] text-zinc-500 font-semibold">{editWebsite.length}/100</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1.5 font-bold">Location</label>
+                <input
+                  type="text"
+                  value={editLocation}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 50) {
+                      setEditLocation(e.target.value);
+                    }
+                  }}
+                  className="w-full h-11 px-3 bg-zinc-900 border border-zinc-800 rounded-xl outline-none focus:border-zinc-700 text-sm transition text-white"
+                  placeholder="Location (e.g. New York, USA)"
+                  maxLength={50}
+                />
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-[10px] text-red-500">{validationErrors.location}</span>
+                  <span className="text-[10px] text-zinc-500 font-semibold">{editLocation.length}/50</span>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-bold rounded-xl text-sm transition duration-300 cursor-pointer shadow-md hover:shadow-blue-900/20"
+                >
+                  Save Changes
+                </button>
+              </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CHANGE PROFILE PIC MODAL */}
+      {showPicModal && (
+        <div 
+          onClick={() => setShowPicModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#18181b] border border-zinc-800 rounded-2xl w-full max-w-sm overflow-hidden text-center cursor-default animate-scale-in"
+          >
+            <div className="p-6 border-b border-zinc-850 flex flex-col items-center">
+              <div className="w-16 h-16 rounded-full overflow-hidden p-[2px] bg-gradient-to-tr from-purple-950/40 to-blue-950/40 mb-3">
+                <img 
+                  src={profileUser?.profile_pic || profileUser?.profilePic || "https://i.pravatar.cc/150"} 
+                  alt="Profile Preview" 
+                  className="w-full h-full rounded-full object-cover"
+                />
+              </div>
+              <h3 className="font-bold text-base text-white">Change Profile Photo</h3>
+            </div>
+            
+            <button 
+              onClick={handleUploadClick}
+              className="w-full py-3.5 text-blue-500 font-bold text-sm hover:bg-zinc-900 border-b border-zinc-850 cursor-pointer transition"
+            >
+              Upload Photo
+            </button>
+            
+            {(profileUser?.profile_pic || profileUser?.profilePic) && (
+              <button 
+                onClick={handleRemovePhoto}
+                className="w-full py-3.5 text-red-500 font-bold text-sm hover:bg-zinc-900 border-b border-zinc-850 cursor-pointer transition"
+              >
+                Remove Current Photo
+              </button>
+            )}
+            
+            <button 
+              onClick={() => setShowPicModal(false)}
+              className="w-full py-3.5 text-zinc-400 text-sm hover:bg-zinc-900 cursor-pointer transition"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -636,9 +1102,20 @@ const Profile = () => {
                   </div>
                 </div>
                 
-                <button className="text-zinc-400 hover:text-white transition duration-300 p-1.5 hover:bg-zinc-900 rounded-full">
-                  <Settings size={16} />
-                </button>
+                <div className="flex items-center gap-1">
+                  {Number(selectedPost.user_id) === Number(currentUser?.id) && (
+                    <button 
+                      onClick={() => handleDeletePost(selectedPost.id)}
+                      className="text-red-500 hover:text-red-400 hover:bg-red-950/20 transition duration-300 p-1.5 rounded-full cursor-pointer"
+                      title="Delete Post"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                  <button className="text-zinc-400 hover:text-white transition duration-300 p-1.5 hover:bg-zinc-900 rounded-full">
+                    <Settings size={16} />
+                  </button>
+                </div>
               </div>
 
               {/* Sidebar Comments Scroller */}
@@ -691,13 +1168,24 @@ const Profile = () => {
                           alt={comment.username}
                           className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-zinc-900"
                         />
-                        <div className="flex-1">
-                          <p className="text-sm">
-                            <span className="font-extrabold text-white mr-2 hover:text-blue-400 transition cursor-pointer">
-                              {comment.username}
-                            </span>
-                            <span className="text-zinc-300 leading-relaxed">{comment.comment}</span>
-                          </p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm break-words leading-relaxed text-zinc-300">
+                              <span className="font-extrabold text-white mr-2 hover:text-blue-400 transition cursor-pointer">
+                                {comment.username}
+                              </span>
+                              {comment.comment}
+                            </p>
+                            {(Number(comment.user_id) === Number(currentUser?.id) || Number(selectedPost.user_id) === Number(currentUser?.id)) && (
+                              <button
+                                onClick={() => handleDeleteComment(comment.id)}
+                                className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition duration-200 cursor-pointer p-0.5 flex-shrink-0"
+                                title="Delete Comment"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
                           <span className="text-[10px] text-zinc-500 mt-1 block font-semibold uppercase tracking-wider">
                             {formatTimeAgo(comment.created_at)}
                           </span>
