@@ -90,8 +90,16 @@ app.use(cookieParserMiddleware);
 app.use(jsonLimitMiddleware);
 app.use(urlencodedLimitMiddleware);
 
-// Global Rate Limiter
-app.use(globalLimiter);
+// Docker Healthcheck Endpoint
+app.get("/health", (req, res) => {
+  const { isRedisReady } = require("./src/config/redis");
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    redis: isRedisReady(),
+  });
+});
 
 // Routes
 app.use("/api/auth", authRoutes);

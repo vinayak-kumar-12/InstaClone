@@ -1,10 +1,21 @@
 const { createClient } = require("redis");
 const logger = require("../utils/logger");
 
-const redisHost = process.env.REDIS_HOST || "127.0.0.1";
+// Dual-environment host resolution: Service name 'redis' inside Docker, 127.0.0.1 outside Docker
+const isDocker = process.env.IS_DOCKER === "true" || process.env.DOCKER_ENV === "true";
+const defaultHost = isDocker ? "redis" : "127.0.0.1";
+let rawHost = process.env.REDIS_HOST || defaultHost;
+if (!isDocker && rawHost === "redis") rawHost = "127.0.0.1";
+if (isDocker && (rawHost === "localhost" || rawHost === "127.0.0.1")) rawHost = "redis";
+
+const redisHost = rawHost;
 const redisPort = parseInt(process.env.REDIS_PORT, 10) || 6379;
 const redisPassword = process.env.REDIS_PASSWORD || undefined;
-const redisUrl = process.env.REDIS_URL || `redis://${redisPassword ? `:${redisPassword}@` : ""}${redisHost}:${redisPort}`;
+
+const redisUrl =
+  process.env.REDIS_URL && !process.env.REDIS_URL.includes("@redis:")
+    ? process.env.REDIS_URL
+    : `redis://${redisPassword ? `:${redisPassword}@` : ""}${redisHost}:${redisPort}`;
 
 // Redis Client Configuration with Automatic Reconnect Strategy
 const clientOptions = {
@@ -32,7 +43,7 @@ const subClient = redisClient.duplicate();
 let isReady = false;
 
 // Event Listeners for Lifecycle Events
-redisClient.on("connect", () => logger.info("Redis socket connected."));
+redisClient.on("connect", () => logger.info(`Redis socket connected to ${redisHost}:${redisPort}`));
 redisClient.on("ready", () => {
   isReady = true;
   logger.info("Redis connection established and ready for use.");

@@ -12,10 +12,19 @@ let workerClient = null;
 const startNotificationWorker = async () => {
   if (isWorkerRunning) return;
 
-  const redisHost = process.env.REDIS_HOST || "127.0.0.1";
+  const isDocker = process.env.IS_DOCKER === "true" || process.env.DOCKER_ENV === "true";
+  const defaultHost = isDocker ? "redis" : "127.0.0.1";
+  let rawHost = process.env.REDIS_HOST || defaultHost;
+  if (!isDocker && rawHost === "redis") rawHost = "127.0.0.1";
+  if (isDocker && (rawHost === "localhost" || rawHost === "127.0.0.1")) rawHost = "redis";
+
+  const redisHost = rawHost;
   const redisPort = parseInt(process.env.REDIS_PORT, 10) || 6379;
   const redisPassword = process.env.REDIS_PASSWORD || undefined;
-  const redisUrl = process.env.REDIS_URL || `redis://${redisPassword ? `:${redisPassword}@` : ""}${redisHost}:${redisPort}`;
+  const redisUrl =
+    process.env.REDIS_URL && !process.env.REDIS_URL.includes("@redis:")
+      ? process.env.REDIS_URL
+      : `redis://${redisPassword ? `:${redisPassword}@` : ""}${redisHost}:${redisPort}`;
 
   workerClient = createClient({
     url: redisUrl,

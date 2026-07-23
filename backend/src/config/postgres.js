@@ -1,17 +1,22 @@
 const { Pool } = require("pg");
 
+// Dual-environment host resolution: Service name inside Docker, localhost outside Docker
+const isDocker = process.env.IS_DOCKER === "true" || process.env.DOCKER_ENV === "true";
+const rawHost = process.env.DB_HOST || "localhost";
+const dbHost = isDocker ? (rawHost === "localhost" || rawHost === "127.0.0.1" ? "postgres" : rawHost) : (rawHost === "postgres" ? "localhost" : rawHost);
+
 const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_DATABASE,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
+  user: process.env.DB_USER || "postgres",
+  host: dbHost,
+  database: process.env.DB_DATABASE || "InstaClone",
+  password: process.env.DB_PASSWORD || "1234",
+  port: parseInt(process.env.DB_PORT, 10) || 5432,
 });
 
 const postDB = async () => {
   try {
     const client = await pool.connect();
-    console.log("PostgreSQL Connected successfully");
+    console.log(`PostgreSQL Connected successfully (${dbHost}:${process.env.DB_PORT || 5432})`);
 
     // Alter users table to add failed login attempts and lockout timestamp if not exists
     await client.query(`
