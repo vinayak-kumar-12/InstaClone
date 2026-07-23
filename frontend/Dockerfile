@@ -20,7 +20,7 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 # ==========================================
-# STAGE 2: Production Stage (Nginx Web Server)
+# STAGE 2: Production Stage (Single Nginx Gateway)
 # ==========================================
 FROM nginx:1.27-alpine AS runner
 
@@ -33,10 +33,10 @@ RUN rm -rf ./*
 # Copy built production assets from builder stage
 COPY --from=builder /app/dist .
 
-# Copy custom production Nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy custom master Nginx configuration
+COPY ../nginx/nginx.conf /etc/nginx/nginx.conf
 
-# Expose HTTP web server port
+# Expose HTTP gateway port
 EXPOSE 80
 
 # Healthcheck monitoring endpoint

@@ -1,4 +1,5 @@
-const jwt = require("jsonwebtoken");
+const { createAdapter } = require("@socket.io/redis-adapter");
+const { pubClient, subClient } = require("../config/redis");
 const registerEvents = require("./events");
 const pubsubService = require("../services/pubsub.service");
 
@@ -6,6 +7,16 @@ const pubsubService = require("../services/pubsub.service");
 const onlineUsers = new Map();
 
 const initSocket = (io) => {
+  // Attach official Socket.IO Redis Adapter for multi-server cluster scaling
+  try {
+    if (pubClient && subClient) {
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log("Socket.IO Redis Adapter attached successfully.");
+    }
+  } catch (adapterErr) {
+    console.error("Failed to attach Socket.IO Redis Adapter:", adapterErr.message);
+  }
+
   // Subscribe to Redis Pub/Sub for multi-server Socket.IO scaling
   pubsubService.subscribeChannel("channel:socketio", (data) => {
     if (data && data.room && data.event) {
