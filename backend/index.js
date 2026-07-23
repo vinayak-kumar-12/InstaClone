@@ -41,8 +41,12 @@ const { globalLimiter } = require("./src/middleware/rateLimit.middleware");
 const globalErrorHandler = require("./src/middleware/error.middleware");
 const morgan = require("morgan");
 
+const { initRedis } = require("./src/config/redis");
+const { startNotificationWorker } = require("./src/workers/notification.worker");
+
 connectDB();
 postDB();
+initRedis();
 
 const app = express();
 
@@ -108,6 +112,7 @@ app.use(globalErrorHandler);
 
 server.listen(process.env.PORT || 3000, () => {
   console.log(`Server is running on port ${process.env.PORT || 3000}`);
+  startNotificationWorker();
 });
 
 // Trigger live-reload to flush in-memory rate limits

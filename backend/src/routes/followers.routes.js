@@ -9,10 +9,11 @@ const {
 } = require("../controller/followers.controller");
 
 const protect = require("../middleware/auth.middleware");
+const redisRateLimit = require("../middleware/redisRateLimit.middleware");
 
 const router = express.Router();
 
-router.post("/:userId", protect, followUserController);
+router.post("/:userId", protect, redisRateLimit("follow", 20, 60), followUserController);
 
 router.delete("/:userId", protect, unfollowUserController);
 

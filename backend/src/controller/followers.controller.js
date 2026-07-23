@@ -9,20 +9,30 @@ const {
 } = require("../model/followers.model");
 
 const { findUserById } = require("../model/user.model");
-const { createAndEmitNotification } = require("../services/notification.service");
+const redisLockService = require("../services/redisLock.service");
+const notificationQueueService = require("../services/notificationQueue.service");
 
 const followUserController = async (req, res) => {
+  const follower_id = req.user.id;
+  const { userId } = req.params;
+
+  if (follower_id == userId) {
+    return res.status(400).json({
+      success: false,
+      message: "You cannot follow yourself.",
+    });
+  }
+
+  // 1. Acquire Distributed Lock to prevent duplicate follow actions
+  const lockToken = await redisLockService.acquireLock(`user:${userId}:follower:${follower_id}`, "follow", 3000);
+  if (!lockToken) {
+    return res.status(429).json({
+      success: false,
+      message: "Follow action in progress. Please wait.",
+    });
+  }
+
   try {
-    const follower_id = req.user.id;
-    const { userId } = req.params;
-
-    if (follower_id == userId) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot follow yourself.",
-      });
-    }
-
     const user = await findUserById(userId);
 
     if (!user) {
@@ -43,9 +53,8 @@ const followUserController = async (req, res) => {
 
     const follow = await followUser(follower_id, userId);
 
-    // Trigger Notification to target user
-    const io = req.app.get("io");
-    createAndEmitNotification({
+    // Queue Notification asynchronously via Redis Queue Worker
+    notificationQueueService.enqueueNotification({
       recipientId: userId,
       senderId: follower_id,
       type: "follow",
@@ -54,7 +63,6 @@ const followUserController = async (req, res) => {
       title: "New Follower",
       message: "started following you.",
       image: req.user.profilePic || req.user.profile_pic || "",
-      io,
     });
 
     // Auto-create chat if not exists
@@ -101,6 +109,8 @@ const followUserController = async (req, res) => {
       success: false,
       message: error.message,
     });
+  } finally {
+    await redisLockService.releaseLock(`user:${userId}:follower:${follower_id}`, "follow", lockToken);
   }
 };
 

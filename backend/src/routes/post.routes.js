@@ -14,6 +14,8 @@ const {
 
 const protect = require("../middleware/auth.middleware");
 const upload = require("../middleware/multer");
+const { cacheMiddleware } = require("../middleware/cache.middleware");
+const redisKeys = require("../utils/redisKeys");
 
 const router = express.Router();
 
@@ -28,7 +30,7 @@ router.get("/user/:userId", protect, getUserPosts);
 
 router.get("/user/:userId/reels", protect, getUserReels);
 
-router.get("/:id", protect, getSinglePost);
+router.get("/:id", protect, cacheMiddleware((req) => redisKeys.postKey(req.params.id), 300), getSinglePost);
 
 router.put("/:id", protect, editPost);
 

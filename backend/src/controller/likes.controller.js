@@ -6,13 +6,24 @@ const {
   getLikedUsers,
 } = require("../model/likes.model");
 const { getPostById } = require("../model/post.model");
-const { createAndEmitNotification } = require("../services/notification.service");
+const redisLockService = require("../services/redisLock.service");
+const notificationQueueService = require("../services/notificationQueue.service");
+const { invalidatePostCache } = require("../middleware/cache.middleware");
 
 const toggleLike = async (req, res) => {
-  try {
-    const user_id = req.user.id;
-    const { postId } = req.params;
+  const user_id = req.user.id;
+  const { postId } = req.params;
 
+  // 1. Acquire Distributed Lock to prevent duplicate concurrent likes
+  const lockToken = await redisLockService.acquireLock(`post:${postId}:user:${user_id}`, "like", 3000);
+  if (!lockToken) {
+    return res.status(429).json({
+      success: false,
+      message: "Action in progress. Please try again.",
+    });
+  }
+
+  try {
     const liked = await isLiked(user_id, postId);
     let isLikedNow = false;
 
@@ -23,11 +34,10 @@ const toggleLike = async (req, res) => {
       await addLike(user_id, postId);
       isLikedNow = true;
 
-      // Trigger Notification to Post Owner
+      // Queue Notification asynchronously via Redis Queue Worker
       const post = await getPostById(postId, user_id);
       if (post && post.user_id) {
-        const io = req.app.get("io");
-        createAndEmitNotification({
+        notificationQueueService.enqueueNotification({
           recipientId: post.user_id,
           senderId: user_id,
           type: "like",
@@ -36,10 +46,12 @@ const toggleLike = async (req, res) => {
           title: "New Like",
           message: "liked your post.",
           image: post.media_url || "",
-          io,
         });
       }
     }
+
+    // Invalidate post cache
+    invalidatePostCache(postId);
 
     // Always calculate from database
     const likesCount = await getPostLikesCount(postId);
@@ -68,6 +80,8 @@ const toggleLike = async (req, res) => {
       success: false,
       message: error.message,
     });
+  } finally {
+    await redisLockService.releaseLock(`post:${postId}:user:${user_id}`, "like", lockToken);
   }
 };
 

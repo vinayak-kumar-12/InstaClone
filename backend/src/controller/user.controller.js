@@ -21,6 +21,9 @@ const jwt = require("jsonwebtoken");
 const { AuthenticationError, ConflictError, AppError } = require("../utils/errors");
 const asyncHandler = require("../utils/asyncHandler");
 const logger = require("../utils/logger");
+const sessionService = require("../services/session.service");
+const otpService = require("../services/otp.service");
+const { invalidateUserCache, invalidateSearchCache } = require("../middleware/cache.middleware");
 
 // Token generation helper
 const generateTokens = (userId) => {
@@ -154,7 +157,8 @@ const login = asyncHandler(async (req, res) => {
   // Generate access & refresh tokens
   const { accessToken, refreshToken } = generateTokens(user.id);
 
-  // Store refresh token in database
+  // Store refresh token in database & Redis
+  const deviceId = req.headers["x-device-id"] || req.headers["user-agent"] || "default_device";
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await createRefreshToken({
     userId: user.id,
@@ -163,6 +167,8 @@ const login = asyncHandler(async (req, res) => {
     ipAddress: req.ip || req.headers["x-forwarded-for"] || "",
     userAgent: req.headers["user-agent"] || "",
   });
+
+  await sessionService.saveRefreshToken(user.id, deviceId, refreshToken);
 
   logger.info(`User logged in successfully`, { userId: user.id });
 
@@ -261,10 +267,14 @@ const refreshToken = asyncHandler(async (req, res) => {
 // ======================= LOGOUT =======================
 const logout = asyncHandler(async (req, res) => {
   const token = req.cookies.refreshToken;
+  const deviceId = req.headers["x-device-id"] || req.headers["user-agent"] || "default_device";
 
   if (token) {
-    // Revoke token in the database
+    // Revoke token in database & Redis
     await revokeRefreshToken(token);
+    if (req.user && req.user.id) {
+      await sessionService.revokeDeviceSession(req.user.id, deviceId);
+    }
     logger.info("User logged out and refresh token revoked");
   }
 
@@ -275,6 +285,19 @@ const logout = asyncHandler(async (req, res) => {
     success: true,
     message: "Logged out successfully",
     data: null,
+  });
+});
+
+// ======================= LOGOUT ALL DEVICES =======================
+const logoutAllDevices = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  await sessionService.revokeAllUserSessions(userId);
+  await revokeAllUserTokens(userId);
+  res.clearCookie("refreshToken", getCookieOptions());
+
+  res.status(200).json({
+    success: true,
+    message: "Logged out from all devices successfully.",
   });
 });
 
@@ -521,15 +544,74 @@ const getUserProfile = asyncHandler(async (req, res) => {
   });
 });
 
+// ======================= OTP & PASSWORD RESET =======================
+const sendOTP = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    throw new AppError("Email is required.", 400);
+  }
+
+  const user = await findUserByEmail(email);
+  if (!user) {
+    throw new AppError("No account found with this email.", 404);
+  }
+
+  // Generate 6-digit numeric OTP
+  const otp = Math.floor(100000 + Math.random() * 900000);
+  await otpService.storeOTP(email, otp, 300); // 5 minutes TTL
+
+  logger.info(`OTP generated for ${email}: ${otp}`);
+
+  res.status(200).json({
+    success: true,
+    message: "OTP sent successfully. It will expire in 5 minutes.",
+    otp: process.env.NODE_ENV === "development" ? otp : undefined,
+  });
+});
+
+const verifyOTPAndResetPassword = asyncHandler(async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  if (!email || !otp || !newPassword) {
+    throw new AppError("Email, OTP, and new password are required.", 400);
+  }
+
+  const isValid = await otpService.verifyOTP(email, otp);
+  if (!isValid) {
+    throw new AppError("Invalid or expired OTP.", 400);
+  }
+
+  const user = await findUserByEmail(email);
+  if (!user) {
+    throw new AppError("User not found.", 404);
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  const { postDB } = require("../config/postgres");
+  const pool = postDB();
+  await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hashedPassword, user.id]);
+
+  // Revoke all sessions on password reset
+  await sessionService.revokeAllUserSessions(user.id);
+  await revokeAllUserTokens(user.id);
+
+  res.status(200).json({
+    success: true,
+    message: "Password reset successfully. Please log in with your new password.",
+  });
+});
+
 module.exports = {
   signUp,
   login,
   refreshToken,
   logout,
+  logoutAllDevices,
   getCurrentUser,
   searchUsers,
   updateProfile,
   updateProfilePic,
   deleteProfilePic,
   getUserProfile,
+  sendOTP,
+  verifyOTPAndResetPassword,
 };

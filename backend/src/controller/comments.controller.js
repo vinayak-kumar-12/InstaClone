@@ -7,21 +7,32 @@ const {
   getPostCommentsCount,
 } = require("../model/comments.model");
 const { getPostById } = require("../model/post.model");
-const { createAndEmitNotification } = require("../services/notification.service");
+const redisLockService = require("../services/redisLock.service");
+const notificationQueueService = require("../services/notificationQueue.service");
+const { invalidatePostCache } = require("../middleware/cache.middleware");
 
 const addComment = async (req, res) => {
+  const user_id = req.user.id;
+  const { postId } = req.params;
+  const { comment } = req.body;
+
+  if (!comment || comment.trim() === "") {
+    return res.status(400).json({
+      success: false,
+      message: "Comment is required.",
+    });
+  }
+
+  // 1. Acquire Distributed Lock to prevent duplicate double-posting of comments
+  const lockToken = await redisLockService.acquireLock(`post:${postId}:user:${user_id}`, "comment", 3000);
+  if (!lockToken) {
+    return res.status(429).json({
+      success: false,
+      message: "Comment submission in progress. Please wait.",
+    });
+  }
+
   try {
-    const user_id = req.user.id;
-    const { postId } = req.params;
-    const { comment } = req.body;
-
-    if (!comment || comment.trim() === "") {
-      return res.status(400).json({
-        success: false,
-        message: "Comment is required.",
-      });
-    }
-
     const newComment = await createComment(user_id, postId, comment);
 
     // Get live comment count from database
@@ -38,6 +49,9 @@ const addComment = async (req, res) => {
       profile_pic: req.user.profilePic || req.user.profile_pic || "",
     };
 
+    // Invalidate cached post details
+    invalidatePostCache(postId);
+
     // Emit live Socket.IO update
     const io = req.app.get("io");
     if (io) {
@@ -49,20 +63,18 @@ const addComment = async (req, res) => {
       });
     }
 
-    // Trigger Notification to Post Owner
+    // Queue Notification asynchronously via Redis Queue Worker
     const post = await getPostById(postId, user_id);
     if (post && post.user_id) {
-      createAndEmitNotification({
+      notificationQueueService.enqueueNotification({
         recipientId: post.user_id,
         senderId: user_id,
         type: "comment",
         entityType: "post",
         entityId: postId,
         title: "New Comment",
-        message: `commented: "${comment.slice(0, 40)}${comment.length > 40 ? "..." : ""}"`,
+        message: `commented: "${comment.trim().slice(0, 30)}${comment.length > 30 ? "..." : ""}"`,
         image: post.media_url || "",
-        metadata: { commentId: newComment.id, commentText: comment },
-        io,
       });
     }
 
@@ -79,6 +91,8 @@ const addComment = async (req, res) => {
       success: false,
       message: error.message,
     });
+  } finally {
+    await redisLockService.releaseLock(`post:${postId}:user:${user_id}`, "comment", lockToken);
   }
 };
 

@@ -1,10 +1,18 @@
 const jwt = require("jsonwebtoken");
 const registerEvents = require("./events");
+const pubsubService = require("../services/pubsub.service");
 
 // In-memory map to store online users: userId -> Set(socket.id)
 const onlineUsers = new Map();
 
 const initSocket = (io) => {
+  // Subscribe to Redis Pub/Sub for multi-server Socket.IO scaling
+  pubsubService.subscribeChannel("channel:socketio", (data) => {
+    if (data && data.room && data.event) {
+      io.to(data.room).emit(data.event, data.payload);
+    }
+  });
+
   // Middleware to authenticate Socket.IO connections using the existing JWT secret
   io.use((socket, next) => {
     try {
@@ -27,15 +35,16 @@ const initSocket = (io) => {
     }
   });
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     const userId = socket.user.id;
     console.log(`User connected: ${userId} (${socket.user.username}), socket: ${socket.id}`);
 
-    // Register user to the online list
+    // Register user to the online list (in-memory + Redis)
     if (!onlineUsers.has(userId)) {
       onlineUsers.set(userId, new Set());
     }
     onlineUsers.get(userId).add(socket.id);
+    await pubsubService.addOnlineUser(userId, socket.id);
 
     // Join personal room automatically (to reach all connected devices for this user)
     socket.join(`user_${userId}`);
@@ -47,7 +56,7 @@ const initSocket = (io) => {
     registerEvents(io, socket, onlineUsers);
 
     // Automatic cleanup on disconnect
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       console.log(`Socket disconnected: ${socket.id}`);
       
       const userSockets = onlineUsers.get(userId);
@@ -58,6 +67,7 @@ const initSocket = (io) => {
           console.log(`User offline: ${userId}`);
         }
       }
+      await pubsubService.removeOnlineUser(userId, socket.id);
 
       // Broadcast the updated online list
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
