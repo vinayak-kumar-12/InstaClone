@@ -7,12 +7,14 @@ import { FaRegHeart, FaHeart } from "react-icons/fa6";
 import { CgProfile as ProfileIcon } from "react-icons/cg";
 import { CiSettings } from "react-icons/ci";
 import { TbBlocks } from "react-icons/tb";
-import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
 import { useFeedStore } from "../../store/feedStore";
+import { useNotificationStore } from "../../store/notificationStore";
+import { useSocketStore } from "../../store/socketStore";
 import { Loader2, Image, MapPin, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../../services/api";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 
 const Sidebar = () => {
   const navigate = useNavigate();
@@ -20,6 +22,35 @@ const Sidebar = () => {
   const logoutAction = useAuthStore((state) => state.logoutAction);
   const currentUser = useAuthStore((state) => state.user);
   const fetchFeed = useFeedStore((state) => state.fetchFeed);
+
+  const { unreadCount, fetchUnreadCount, handleRealtimeNew, handleRealtimeCount } = useNotificationStore();
+  const socket = useSocketStore((state) => state.socket);
+
+  // Load unread count on mount
+  React.useEffect(() => {
+    fetchUnreadCount();
+  }, [fetchUnreadCount]);
+
+  // Listen to Socket.IO real-time notification events
+  React.useEffect(() => {
+    if (!socket) return;
+
+    const onNewNotif = (notif) => {
+      handleRealtimeNew(notif);
+    };
+
+    const onCountUpdate = ({ unreadCount }) => {
+      handleRealtimeCount(unreadCount);
+    };
+
+    socket.on("notification:new", onNewNotif);
+    socket.on("notification:count", onCountUpdate);
+
+    return () => {
+      socket.off("notification:new", onNewNotif);
+      socket.off("notification:count", onCountUpdate);
+    };
+  }, [socket, handleRealtimeNew, handleRealtimeCount]);
 
   // Create Post Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -155,12 +186,19 @@ const Sidebar = () => {
 
             <Link
               to="/Notification"
-              className={`flex items-center gap-4 p-3.5 rounded-xl hover:bg-zinc-900 cursor-pointer transition ${
+              className={`flex items-center justify-between p-3.5 rounded-xl hover:bg-zinc-900 cursor-pointer transition ${
                 location.pathname === "/Notification" ? "bg-zinc-900 font-bold" : "text-zinc-300"
               }`}
             >
-              <FaRegHeart size={22} />
-              <span className="text-md">Notifications</span>
+              <div className="flex items-center gap-4">
+                <FaRegHeart size={22} />
+                <span className="text-md">Notifications</span>
+              </div>
+              {unreadCount > 0 && (
+                <span className="bg-pink-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </Link>
 
             {/* Create Post Action */}

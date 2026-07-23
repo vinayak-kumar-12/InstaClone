@@ -17,10 +17,11 @@ const commentRoutes = require("./src/routes/comments.routes");
 const followerRoutes = require("./src/routes/followers.routes");
 const feedRoutes = require("./src/routes/feed.routes");
 const savedPostRoutes = require("./src/routes/savedPost.routes");
-const storyRoutes = require("./src/routes/story.routes");
+const storyRoutes = require("./src/routes/story.v2.routes");
 const storyViewRoutes = require("./src/routes/storyView.routes");
 const chatRoutes = require("./src/routes/chat.routes");
 const messageRoutes = require("./src/routes/message.routes");
+const notificationRoutes = require("./src/routes/notification.routes");
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -100,6 +101,7 @@ app.use("/api/stories", storyRoutes);
 app.use("/api/story-views", storyViewRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Global Error Handler
 app.use(globalErrorHandler);

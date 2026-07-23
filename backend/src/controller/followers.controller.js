@@ -9,6 +9,7 @@ const {
 } = require("../model/followers.model");
 
 const { findUserById } = require("../model/user.model");
+const { createAndEmitNotification } = require("../services/notification.service");
 
 const followUserController = async (req, res) => {
   try {
@@ -41,6 +42,20 @@ const followUserController = async (req, res) => {
     }
 
     const follow = await followUser(follower_id, userId);
+
+    // Trigger Notification to target user
+    const io = req.app.get("io");
+    createAndEmitNotification({
+      recipientId: userId,
+      senderId: follower_id,
+      type: "follow",
+      entityType: "user",
+      entityId: follower_id,
+      title: "New Follower",
+      message: "started following you.",
+      image: req.user.profilePic || req.user.profile_pic || "",
+      io,
+    });
 
     // Auto-create chat if not exists
     try {

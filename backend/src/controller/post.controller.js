@@ -231,6 +231,32 @@ const removePost = async (req, res) => {
   }
 };
 
+// Upload Media Endpoint Handler
+const uploadMedia = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file provided. Please attach a file.",
+      });
+    }
+
+    const uploadResult = await uploadStream(req.file.buffer);
+
+    return res.status(200).json({
+      success: true,
+      mediaUrl: uploadResult.secure_url,
+      url: uploadResult.secure_url,
+    });
+  } catch (error) {
+    console.error("Upload Media Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   createNewPost,
   getPosts,
@@ -240,4 +266,5 @@ module.exports = {
   getUserReels,
   editPost,
   removePost,
+  uploadMedia,
 };

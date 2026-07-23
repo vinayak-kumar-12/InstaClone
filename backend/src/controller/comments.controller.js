@@ -6,6 +6,8 @@ const {
   deleteComment,
   getPostCommentsCount,
 } = require("../model/comments.model");
+const { getPostById } = require("../model/post.model");
+const { createAndEmitNotification } = require("../services/notification.service");
 
 const addComment = async (req, res) => {
   try {
@@ -44,6 +46,23 @@ const addComment = async (req, res) => {
         commentsCount,
         comment: fullComment,
         type: "add",
+      });
+    }
+
+    // Trigger Notification to Post Owner
+    const post = await getPostById(postId, user_id);
+    if (post && post.user_id) {
+      createAndEmitNotification({
+        recipientId: post.user_id,
+        senderId: user_id,
+        type: "comment",
+        entityType: "post",
+        entityId: postId,
+        title: "New Comment",
+        message: `commented: "${comment.slice(0, 40)}${comment.length > 40 ? "..." : ""}"`,
+        image: post.media_url || "",
+        metadata: { commentId: newComment.id, commentText: comment },
+        io,
       });
     }
 

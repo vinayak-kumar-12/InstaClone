@@ -6,6 +6,7 @@ const {
   getMessageById,
 } = require("../model/message.model");
 const { isParticipant, getChatById } = require("../model/chat.model");
+const { createAndEmitNotification } = require("../services/notification.service");
 
 /**
  * Sends a message in a chat
@@ -52,6 +53,20 @@ const sendMessage = async (req, res) => {
         chat.participants.forEach((participant) => {
           // Emit to all participants' personal rooms
           io.to(`user_${participant.id}`).emit("receiveMessage", fullMessage);
+
+          if (Number(participant.id) !== Number(senderId)) {
+            createAndEmitNotification({
+              recipientId: participant.id,
+              senderId,
+              type: "message",
+              entityType: "chat",
+              entityId: chatId,
+              title: "New Message",
+              message: `sent you a message: "${message.slice(0, 30)}${message.length > 30 ? "..." : ""}"`,
+              metadata: { chatId, messageId: createdMessage.id },
+              io,
+            });
+          }
         });
       }
     }

@@ -5,6 +5,8 @@ const {
   getPostLikesCount,
   getLikedUsers,
 } = require("../model/likes.model");
+const { getPostById } = require("../model/post.model");
+const { createAndEmitNotification } = require("../services/notification.service");
 
 const toggleLike = async (req, res) => {
   try {
@@ -20,6 +22,23 @@ const toggleLike = async (req, res) => {
     } else {
       await addLike(user_id, postId);
       isLikedNow = true;
+
+      // Trigger Notification to Post Owner
+      const post = await getPostById(postId, user_id);
+      if (post && post.user_id) {
+        const io = req.app.get("io");
+        createAndEmitNotification({
+          recipientId: post.user_id,
+          senderId: user_id,
+          type: "like",
+          entityType: "post",
+          entityId: postId,
+          title: "New Like",
+          message: "liked your post.",
+          image: post.media_url || "",
+          io,
+        });
+      }
     }
 
     // Always calculate from database

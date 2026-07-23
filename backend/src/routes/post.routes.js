@@ -9,6 +9,7 @@ const {
   getUserReels,
   editPost,
   removePost,
+  uploadMedia,
 } = require("../controller/post.controller");
 
 const protect = require("../middleware/auth.middleware");
@@ -16,6 +17,7 @@ const upload = require("../middleware/multer");
 
 const router = express.Router();
 
+router.post("/upload", protect, upload.single("file"), uploadMedia);
 router.post("/", protect, upload.single("image"), createNewPost);
 
 router.get("/", protect, getPosts);

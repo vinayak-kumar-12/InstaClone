@@ -3,9 +3,12 @@ import { useFeedStore } from "../../store/feedStore";
 import { useAuthStore } from "../../store/authStore";
 import { useSocketStore } from "../../store/socketStore";
 import { FeedSkeleton, Shimmer } from "../../components/Skeletons";
-import { Heart, MessageCircle, Bookmark, Trash2, Send, Clock, MapPin, X } from "lucide-react";
+import { Heart, MessageCircle, Bookmark, Trash2, Send, Clock, MapPin, X, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../../services/api";
+import { useStoryStore } from "../../store/storyStore";
+import StoryViewerModal from "../../components/Stories/StoryViewerModal";
+import StoryUploadModal from "../../components/Stories/StoryUploadModal";
 
 // Simple time-ago formatter helper
 const formatTimeAgo = (dateString) => {
@@ -29,6 +32,14 @@ const formatTimeAgo = (dateString) => {
 const Mainbar = () => {
   const { posts, hasMore, isLoading, fetchFeed, likePost, addComment, deletePost, savedPostIds, savePost, fetchSavedPostIds } = useFeedStore();
   const currentUser = useAuthStore((state) => state.user);
+  
+  const {
+    storyFeed,
+    isUploadOpen,
+    fetchStoriesFeed,
+    openViewer,
+    setUploadOpen,
+  } = useStoryStore();
   
   // Comments Modal State
   const [selectedPost, setSelectedPost] = useState(null);
@@ -68,11 +79,29 @@ const Mainbar = () => {
     };
   }, [socket]);
 
-  // Load feed and saved lists on mount
+  // Load feed, saved lists, and stories feed on mount
   useEffect(() => {
     fetchFeed(true);
     fetchSavedPostIds();
-  }, [fetchFeed, fetchSavedPostIds]);
+    fetchStoriesFeed();
+  }, [fetchFeed, fetchSavedPostIds, fetchStoriesFeed]);
+
+  // Socket.IO event listeners for real-time stories updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const onStoryUpdate = () => {
+      fetchStoriesFeed();
+    };
+
+    socket.on("story:new", onStoryUpdate);
+    socket.on("story:delete", onStoryUpdate);
+
+    return () => {
+      socket.off("story:new", onStoryUpdate);
+      socket.off("story:delete", onStoryUpdate);
+    };
+  }, [socket, fetchStoriesFeed]);
 
   // Infinite Scroll Trigger
   const observerTarget = useRef(null);
@@ -150,38 +179,83 @@ const Mainbar = () => {
 
   return (
     <div className="w-full max-w-[480px] py-6 px-2 sm:px-0 flex flex-col items-center mx-auto">
-      {/* STORIES BAR (PREMIUM LOOK) */}
+      {/* STORIES BAR (REAL INSTAGRAM STORIES) */}
       <div className="w-full flex gap-4 overflow-x-auto pb-4 mb-6 border-b border-zinc-900 scrollbar-none select-none">
-        {/* Current User Story */}
-        <div className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer">
+        {/* Current User Story Item */}
+        <div
+          onClick={() => {
+            const ownIdx = storyFeed.findIndex((g) => Number(g.userId) === Number(currentUser?.id));
+            if (ownIdx >= 0 && storyFeed[ownIdx]?.stories?.length > 0) {
+              openViewer(ownIdx, 0);
+            } else {
+              setUploadOpen(true);
+            }
+          }}
+          className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group"
+        >
           <div className="relative">
-            <img
-              src={currentUser?.profile_pic || "https://i.pravatar.cc/150"}
-              alt="My Story"
-              className="w-14 h-14 rounded-full object-cover p-[2px] border border-zinc-700"
-            />
-            <div className="absolute bottom-0 right-0 bg-blue-500 text-white rounded-full p-0.5 border-2 border-black flex items-center justify-center">
+            <div
+              className={`rounded-full p-[2px] ${
+                storyFeed.find((g) => Number(g.userId) === Number(currentUser?.id))?.hasUnread
+                  ? "bg-gradient-to-tr from-yellow-500 via-red-500 to-purple-600"
+                  : storyFeed.find((g) => Number(g.userId) === Number(currentUser?.id))?.stories?.length > 0
+                  ? "border border-zinc-700"
+                  : ""
+              }`}
+            >
+              <img
+                src={currentUser?.profile_pic || "https://i.pravatar.cc/150"}
+                alt="My Story"
+                className="w-14 h-14 rounded-full object-cover p-[2px] bg-black"
+              />
+            </div>
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                setUploadOpen(true);
+              }}
+              title="Add Story"
+              className="absolute bottom-0 right-0 bg-blue-500 text-white rounded-full p-0.5 border-2 border-black flex items-center justify-center hover:scale-110 transition"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-3 h-3">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
             </div>
           </div>
-          <span className="text-xs text-zinc-400 max-w-[60px] truncate">Your Story</span>
+          <span className="text-xs text-zinc-400 max-w-[60px] truncate font-medium">Your Story</span>
         </div>
 
-        {/* Mock Stories */}
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer">
-            <div className="rounded-full bg-gradient-to-tr from-yellow-500 via-red-500 to-purple-600 p-[2px]">
-              <img
-                src={`https://i.pravatar.cc/150?img=${i + 15}`}
-                alt="Story"
-                className="w-14 h-14 rounded-full object-cover bg-black p-[2px]"
-              />
+        {/* Real User Stories Feed */}
+        {storyFeed.map((group, groupIdx) => {
+          if (Number(group.userId) === Number(currentUser?.id)) return null;
+
+          return (
+            <div
+              key={group.userId}
+              onClick={() => openViewer(groupIdx, 0)}
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group"
+            >
+              <div
+                className={`rounded-full p-[2px] ${
+                  group.isCloseFriendStory
+                    ? "bg-gradient-to-tr from-emerald-500 to-green-400"
+                    : group.hasUnread
+                    ? "bg-gradient-to-tr from-yellow-500 via-red-500 to-purple-600"
+                    : "border border-zinc-700"
+                }`}
+              >
+                <img
+                  src={group.user?.profile_pic || "https://i.pravatar.cc/150"}
+                  alt={group.user?.username}
+                  className="w-14 h-14 rounded-full object-cover bg-black p-[2px]"
+                />
+              </div>
+              <span className="text-xs text-zinc-400 max-w-[64px] truncate font-medium">
+                {group.user?.username}
+              </span>
             </div>
-            <span className="text-xs text-zinc-400 max-w-[60px] truncate">friend_{i}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* FEED POSTS */}
@@ -421,6 +495,10 @@ const Mainbar = () => {
           </div>
         </div>
       )}
+
+      {/* Fullscreen Story Viewer Overlay & Story Upload Modal */}
+      <StoryViewerModal />
+      <StoryUploadModal isOpen={isUploadOpen} onClose={() => setUploadOpen(false)} />
     </div>
   );
 };
