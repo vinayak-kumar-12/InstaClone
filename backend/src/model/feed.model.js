@@ -39,11 +39,12 @@ const getUserFeed = async (user_id, limit = 20, offset = 0) => {
     JOIN users u
       ON p.user_id = u.id
 
-    WHERE p.user_id IN (
-      SELECT following_id
-      FROM followers
-      WHERE follower_id = $1
-    )
+    WHERE p.post_type = 'post'
+      AND (p.user_id = $1 OR p.user_id IN (
+        SELECT following_id
+        FROM followers
+        WHERE follower_id = $1
+      ))
 
     ORDER BY p.created_at DESC
 

@@ -3,12 +3,36 @@ import { FiArrowLeft, FiSearch } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { UserSearchSkeleton } from "../Skeletons";
 import api from "../../services/api";
+import { useSocketStore } from "../../store/socketStore";
 
 const Search = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  const socket = useSocketStore((state) => state.socket);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleProfileUpdate = ({ userId, profilePic }) => {
+      setFilteredUsers((prev) =>
+        prev.map((user) => {
+          if (Number(user.id) === Number(userId)) {
+            return { ...user, profile_pic: profilePic };
+          }
+          return user;
+        })
+      );
+    };
+
+    socket.on("profileUpdated", handleProfileUpdate);
+
+    return () => {
+      socket.off("profileUpdated", handleProfileUpdate);
+    };
+  }, [socket]);
 
   // Fetch users from backend with debouncing
   useEffect(() => {

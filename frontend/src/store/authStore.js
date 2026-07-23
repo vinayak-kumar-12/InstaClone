@@ -19,9 +19,10 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = await api.post("/auth/login", { email, password });
       const { accessToken, user } = res.data.data;
+      const normalizedUser = user ? { ...user, profile_pic: user.profilePic || user.profile_pic, profilePic: user.profilePic || user.profile_pic } : null;
       set({
-        user,
-        currentUser: user,
+        user: normalizedUser,
+        currentUser: normalizedUser,
         accessToken,
         isAuthenticated: true,
         isRestoringSession: false,
@@ -42,9 +43,10 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = await api.post("/auth/signup", userData);
       const { accessToken, user } = res.data.data;
+      const normalizedUser = user ? { ...user, profile_pic: user.profilePic || user.profile_pic, profilePic: user.profilePic || user.profile_pic } : null;
       set({
-        user,
-        currentUser: user,
+        user: normalizedUser,
+        currentUser: normalizedUser,
         accessToken,
         isAuthenticated: true,
         isRestoringSession: false,
@@ -99,9 +101,10 @@ export const useAuthStore = create((set, get) => ({
       // 2. Fetch current user data
       const userRes = await api.get("/auth/me");
       const fetchedUser = userRes.data.data.user;
+      const normalizedUser = fetchedUser ? { ...fetchedUser, profile_pic: fetchedUser.profilePic || fetchedUser.profile_pic, profilePic: fetchedUser.profilePic || fetchedUser.profile_pic } : null;
       set({
-        user: fetchedUser,
-        currentUser: fetchedUser,
+        user: normalizedUser,
+        currentUser: normalizedUser,
         isAuthenticated: true,
         isRestoringSession: false,
       });

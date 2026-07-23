@@ -69,8 +69,9 @@ const getPosts = async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 20;
     const offset = Number(req.query.offset) || 0;
+    const currentUserId = req.user.id;
 
-    const posts = await getAllPosts(limit, offset);
+    const posts = await getAllPosts(limit, offset, currentUserId);
 
     return res.status(200).json({
       success: true,
@@ -110,8 +111,9 @@ const getReels = async (req, res) => {
 const getSinglePost = async (req, res) => {
   try {
     const { id } = req.params;
+    const currentUserId = req.user.id;
 
-    const post = await getPostById(id);
+    const post = await getPostById(id, currentUserId);
 
     if (!post) {
       return res.status(404).json({
@@ -136,8 +138,9 @@ const getSinglePost = async (req, res) => {
 const getUserPosts = async (req, res) => {
   try {
     const { userId } = req.params;
+    const currentUserId = req.user.id;
 
-    const posts = await getPostsByUser(userId);
+    const posts = await getPostsByUser(userId, currentUserId);
 
     return res.status(200).json({
       success: true,

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useFeedStore } from "../../store/feedStore";
 import { useAuthStore } from "../../store/authStore";
+import { useSocketStore } from "../../store/socketStore";
 import { FeedSkeleton, Shimmer } from "../../components/Skeletons";
 import { Heart, MessageCircle, Bookmark, Trash2, Send, Clock, MapPin, X } from "lucide-react";
 import toast from "react-hot-toast";
@@ -35,6 +36,37 @@ const Mainbar = () => {
   const [commentText, setCommentText] = useState("");
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+
+  // Socket.IO event listeners for profile updates
+  const socket = useSocketStore((state) => state.socket);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleProfileUpdate = ({ userId, profilePic }) => {
+      setComments((prevComments) =>
+        prevComments.map((comment) => {
+          if (Number(comment.user_id) === Number(userId)) {
+            return { ...comment, profile_pic: profilePic };
+          }
+          return comment;
+        })
+      );
+
+      setSelectedPost((prevSelected) => {
+        if (prevSelected && Number(prevSelected.user_id) === Number(userId)) {
+          return { ...prevSelected, profile_pic: profilePic };
+        }
+        return prevSelected;
+      });
+    };
+
+    socket.on("profileUpdated", handleProfileUpdate);
+
+    return () => {
+      socket.off("profileUpdated", handleProfileUpdate);
+    };
+  }, [socket]);
 
   // Load feed and saved lists on mount
   useEffect(() => {
@@ -117,7 +149,7 @@ const Mainbar = () => {
   };
 
   return (
-    <div className="w-full max-w-[620px] py-8 px-4 flex flex-col items-center">
+    <div className="w-full max-w-[480px] py-6 px-2 sm:px-0 flex flex-col items-center mx-auto">
       {/* STORIES BAR (PREMIUM LOOK) */}
       <div className="w-full flex gap-4 overflow-x-auto pb-4 mb-6 border-b border-zinc-900 scrollbar-none select-none">
         {/* Current User Story */}
@@ -153,7 +185,7 @@ const Mainbar = () => {
       </div>
 
       {/* FEED POSTS */}
-      <div className="w-full space-y-6">
+      <div className="w-full space-y-9">
         {posts.map((post) => (
           <div
             key={post.id}
@@ -178,7 +210,7 @@ const Mainbar = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 text-zinc-400">
+              <div className="flex items-center gap-7 text-zinc-400">
                 <span className="text-xs">{formatTimeAgo(post.created_at)}</span>
                 {currentUser?.id === post.user_id && (
                   <button
@@ -192,11 +224,11 @@ const Mainbar = () => {
             </div>
 
             {/* Post Image Media */}
-            <div className="relative bg-zinc-900 aspect-square flex items-center justify-center">
+            <div className="relative bg-zinc-900 w-full flex items-center justify-center">
               <img
                 src={post.media_url}
                 alt="Media"
-                className="w-full h-full object-cover"
+                className="w-full h-[600px] object-contain block mx-auto"
                 loading="lazy"
               />
             </div>
@@ -285,7 +317,7 @@ const Mainbar = () => {
               <img
                 src={selectedPost.media_url}
                 alt="Post Media"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             </div>
 

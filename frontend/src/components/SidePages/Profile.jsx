@@ -319,12 +319,75 @@ const Profile = () => {
       });
     };
 
+    const handleProfileUpdate = ({ userId, profilePic }) => {
+      setProfileUser((prev) => {
+        if (prev && Number(prev.id) === Number(userId)) {
+          return { ...prev, profile_pic: profilePic, profilePic: profilePic };
+        }
+        return prev;
+      });
+
+      setPosts((prevPosts) =>
+        prevPosts.map((post) => {
+          if (Number(post.user_id) === Number(userId)) {
+            return { ...post, profile_pic: profilePic };
+          }
+          return post;
+        })
+      );
+
+      setSavedPosts((prevSaved) =>
+        prevSaved.map((post) => {
+          if (Number(post.user_id) === Number(userId)) {
+            return { ...post, profile_pic: profilePic };
+          }
+          return post;
+        })
+      );
+
+      setSelectedPost((prevSelected) => {
+        if (prevSelected && Number(prevSelected.user_id) === Number(userId)) {
+          return { ...prevSelected, profile_pic: profilePic };
+        }
+        return prevSelected;
+      });
+
+      setComments((prevComments) =>
+        prevComments.map((comment) => {
+          if (Number(comment.user_id) === Number(userId)) {
+            return { ...comment, profile_pic: profilePic };
+          }
+          return comment;
+        })
+      );
+
+      setFollowersList((prevList) =>
+        prevList.map((user) => {
+          if (Number(user.id) === Number(userId)) {
+            return { ...user, profile_pic: profilePic, profilePic: profilePic };
+          }
+          return user;
+        })
+      );
+
+      setFollowingList((prevList) =>
+        prevList.map((user) => {
+          if (Number(user.id) === Number(userId)) {
+            return { ...user, profile_pic: profilePic, profilePic: profilePic };
+          }
+          return user;
+        })
+      );
+    };
+
     socket.on("postLikeUpdate", handlePostLikeUpdate);
     socket.on("postCommentUpdate", handlePostCommentUpdate);
+    socket.on("profileUpdated", handleProfileUpdate);
 
     return () => {
       socket.off("postLikeUpdate", handlePostLikeUpdate);
       socket.off("postCommentUpdate", handlePostCommentUpdate);
+      socket.off("profileUpdated", handleProfileUpdate);
     };
   }, [socket]);
 

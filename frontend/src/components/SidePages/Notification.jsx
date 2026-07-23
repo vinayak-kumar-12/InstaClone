@@ -1,8 +1,35 @@
 import React, { useEffect, useState } from "react";
 import { Heart, UserPlus, MessageSquare, Bell } from "lucide-react";
+import { useSocketStore } from "../../store/socketStore";
 
 const Notification = () => {
   const [notifications, setNotifications] = useState([]);
+
+  const socket = useSocketStore((state) => state.socket);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleProfileUpdate = ({ userId, profilePic }) => {
+      setNotifications((prev) =>
+        prev.map((notif) => {
+          if (notif.user && Number(notif.user.id) === Number(userId)) {
+            return {
+              ...notif,
+              user: { ...notif.user, avatar: profilePic, profile_pic: profilePic },
+            };
+          }
+          return notif;
+        })
+      );
+    };
+
+    socket.on("profileUpdated", handleProfileUpdate);
+
+    return () => {
+      socket.off("profileUpdated", handleProfileUpdate);
+    };
+  }, [socket]);
 
   useEffect(() => {
     // Generate some mock premium alerts

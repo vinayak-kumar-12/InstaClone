@@ -29,31 +29,99 @@ const createPost = async ({
 };
 
 // Get Post By ID
-const getPostById = async (id) => {
+const getPostById = async (id, currentUserId = null) => {
   const result = await pool.query(
     `
-    SELECT *
-    FROM posts
-    WHERE id = $1;
+    SELECT
+      p.id,
+      p.caption,
+      p.media_url,
+      p.media_type,
+      p.location,
+      p.created_at,
+
+      u.id AS user_id,
+      u.username,
+      u.profile_pic,
+
+      (
+        SELECT COUNT(*)
+        FROM likes l
+        WHERE l.post_id = p.id
+      ) AS likes_count,
+
+      (
+        SELECT COUNT(*)
+        FROM comments c
+        WHERE c.post_id = p.id
+      ) AS comments_count,
+
+      EXISTS (
+        SELECT 1
+        FROM likes l
+        WHERE l.post_id = p.id
+        AND l.user_id = $2
+      ) AS is_liked
+
+    FROM posts p
+
+    JOIN users u
+      ON p.user_id = u.id
+
+    WHERE p.id = $1;
     `,
-    [id],
+    [id, currentUserId],
   );
 
   return result.rows[0];
 };
 
 // Get All Posts (Only Normal Posts)
-const getAllPosts = async (limit = 20, offset = 0) => {
+const getAllPosts = async (limit = 20, offset = 0, currentUserId = null) => {
   const result = await pool.query(
     `
-    SELECT *
-    FROM posts
-    WHERE post_type = 'post'
-    ORDER BY created_at DESC
+    SELECT
+      p.id,
+      p.caption,
+      p.media_url,
+      p.media_type,
+      p.location,
+      p.created_at,
+
+      u.id AS user_id,
+      u.username,
+      u.profile_pic,
+
+      (
+        SELECT COUNT(*)
+        FROM likes l
+        WHERE l.post_id = p.id
+      ) AS likes_count,
+
+      (
+        SELECT COUNT(*)
+        FROM comments c
+        WHERE c.post_id = p.id
+      ) AS comments_count,
+
+      EXISTS (
+        SELECT 1
+        FROM likes l
+        WHERE l.post_id = p.id
+        AND l.user_id = $3
+      ) AS is_liked
+
+    FROM posts p
+
+    JOIN users u
+      ON p.user_id = u.id
+
+    WHERE p.post_type = 'post'
+    ORDER BY p.created_at DESC
     LIMIT $1
     OFFSET $2;
     `,
-    [limit, offset],
+    [limit, offset, currentUserId],
   );
 
   return result.rows;
@@ -77,16 +145,50 @@ const getAllReels = async (limit = 20, offset = 0) => {
 };
 
 // Get User Posts
-const getPostsByUser = async (user_id) => {
+const getPostsByUser = async (user_id, currentUserId = null) => {
   const result = await pool.query(
     `
-    SELECT *
-    FROM posts
-    WHERE user_id = $1
-      AND post_type = 'post'
-    ORDER BY created_at DESC;
+    SELECT
+      p.id,
+      p.caption,
+      p.media_url,
+      p.media_type,
+      p.location,
+      p.created_at,
+
+      u.id AS user_id,
+      u.username,
+      u.profile_pic,
+
+      (
+        SELECT COUNT(*)
+        FROM likes l
+        WHERE l.post_id = p.id
+      ) AS likes_count,
+
+      (
+        SELECT COUNT(*)
+        FROM comments c
+        WHERE c.post_id = p.id
+      ) AS comments_count,
+
+      EXISTS (
+        SELECT 1
+        FROM likes l
+        WHERE l.post_id = p.id
+        AND l.user_id = $2
+      ) AS is_liked
+
+    FROM posts p
+
+    JOIN users u
+      ON p.user_id = u.id
+
+    WHERE p.user_id = $1
+      AND p.post_type = 'post'
+    ORDER BY p.created_at DESC;
     `,
-    [user_id],
+    [user_id, currentUserId],
   );
 
   return result.rows;

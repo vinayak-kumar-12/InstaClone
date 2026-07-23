@@ -103,6 +103,7 @@ const signUp = asyncHandler(async (req, res) => {
         email: user.email,
         bio: user.bio,
         profilePic: user.profile_pic,
+        profile_pic: user.profile_pic,
       },
     },
   });
@@ -179,6 +180,7 @@ const login = asyncHandler(async (req, res) => {
         email: user.email,
         bio: user.bio,
         profilePic: user.profile_pic,
+        profile_pic: user.profile_pic,
       },
     },
   });
@@ -370,6 +372,7 @@ const updateProfile = asyncHandler(async (req, res) => {
         email: updatedUser.email,
         bio: updatedUser.bio,
         profilePic: updatedUser.profile_pic,
+        profile_pic: updatedUser.profile_pic,
         website: updatedUser.website,
         location: updatedUser.location,
       },
@@ -406,6 +409,14 @@ const updateProfilePic = asyncHandler(async (req, res) => {
   // Save new image URL in DB
   const updatedUser = await updateUserProfilePic(userId, newPicUrl);
 
+  const io = req.app.get("io");
+  if (io) {
+    io.emit("profileUpdated", {
+      userId: userId,
+      profilePic: newPicUrl,
+    });
+  }
+
   // Delete previous Cloudinary image if it exists and was a Cloudinary URL
   if (oldPicUrl && oldPicUrl.includes("res.cloudinary.com")) {
     const oldPublicId = getPublicIdFromUrl(oldPicUrl);
@@ -428,6 +439,7 @@ const updateProfilePic = asyncHandler(async (req, res) => {
         email: updatedUser.email,
         bio: updatedUser.bio,
         profilePic: updatedUser.profile_pic,
+        profile_pic: updatedUser.profile_pic,
         website: updatedUser.website,
         location: updatedUser.location,
       },
@@ -444,6 +456,14 @@ const deleteProfilePic = asyncHandler(async (req, res) => {
 
   // Clear in DB
   const updatedUser = await updateUserProfilePic(userId, "");
+
+  const io = req.app.get("io");
+  if (io) {
+    io.emit("profileUpdated", {
+      userId: userId,
+      profilePic: "",
+    });
+  }
 
   // Delete old from Cloudinary
   if (oldPicUrl && oldPicUrl.includes("res.cloudinary.com")) {
@@ -467,6 +487,7 @@ const deleteProfilePic = asyncHandler(async (req, res) => {
         email: updatedUser.email,
         bio: updatedUser.bio,
         profilePic: updatedUser.profile_pic,
+        profile_pic: updatedUser.profile_pic,
         website: updatedUser.website,
         location: updatedUser.location,
       },
@@ -492,6 +513,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
         email: user.email,
         bio: user.bio,
         profilePic: user.profile_pic,
+        profile_pic: user.profile_pic,
         website: user.website,
         location: user.location,
       },

@@ -43,6 +43,7 @@ const protect = asyncHandler(async (req, res, next) => {
     email: currentUser.email,
     bio: currentUser.bio,
     profilePic: currentUser.profile_pic,
+    profile_pic: currentUser.profile_pic,
     website: currentUser.website || "",
     location: currentUser.location || "",
   };

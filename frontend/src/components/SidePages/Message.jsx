@@ -87,10 +87,23 @@ const Message = () => {
     }
   };
 
-  // Helper to get participant info
+  // Helper to get participant info.
+  // The chat list API (/chats) returns flat fields: participant_id, participant_username, participant_profile_pic.
+  // getChatById returns a participants[] array. We handle both shapes here.
   const getParticipant = (chat) => {
-    if (!chat || !chat.participants) return {};
-    return chat.participants.find((p) => Number(p.id) !== Number(currentUser?.id)) || {};
+    if (!chat) return {};
+
+    // If the chat has a participants array (getChatById shape), use it
+    if (chat.participants && Array.isArray(chat.participants)) {
+      return chat.participants.find((p) => Number(p.id) !== Number(currentUser?.id)) || {};
+    }
+
+    // Otherwise use the flat fields returned by the chat list API
+    return {
+      id: chat.participant_id,
+      username: chat.participant_username,
+      profile_pic: chat.participant_profile_pic,
+    };
   };
 
   // Check if a user is online

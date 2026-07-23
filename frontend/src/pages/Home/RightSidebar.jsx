@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuthStore } from "../../store/authStore";
+import { useSocketStore } from "../../store/socketStore";
 import { Link } from "react-router-dom";
 import api from "../../services/api";
 import toast from "react-hot-toast";
@@ -8,6 +9,29 @@ const RightSidebar = () => {
   const currentUser = useAuthStore((state) => state.user);
   const [suggestions, setSuggestions] = useState([]);
   const [followingMap, setFollowingMap] = useState({});
+
+  const socket = useSocketStore((state) => state.socket);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleProfileUpdate = ({ userId, profilePic }) => {
+      setSuggestions((prev) =>
+        prev.map((user) => {
+          if (Number(user.id) === Number(userId)) {
+            return { ...user, avatar: profilePic, profile_pic: profilePic };
+          }
+          return user;
+        })
+      );
+    };
+
+    socket.on("profileUpdated", handleProfileUpdate);
+
+    return () => {
+      socket.off("profileUpdated", handleProfileUpdate);
+    };
+  }, [socket]);
 
   useEffect(() => {
     // Generate some premium suggestions
@@ -43,7 +67,7 @@ const RightSidebar = () => {
   };
 
   return (
-    <div className="hidden xl:block w-80 h-screen bg-black text-white px-6 py-10 border-l border-zinc-900 flex-shrink-0 select-none">
+    <div className="hidden xl:block w-72 h-screen bg-black text-white px-6 py-10 border-l border-zinc-900 flex-shrink-0 select-none">
       {/* Current User Card */}
       <div className="flex items-center justify-between mb-8">
         <Link to={`/profile/${currentUser?.id || "me"}`} className="flex items-center gap-3">

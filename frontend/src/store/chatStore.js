@@ -2,6 +2,7 @@ import { create } from "zustand";
 import api from "../services/api";
 import { useSocketStore } from "./socketStore";
 import { useAuthStore } from "./authStore";
+import { useFeedStore } from "./feedStore";
 
 export const useChatStore = create((set, get) => ({
   chats: [],
@@ -107,6 +108,76 @@ export const useChatStore = create((set, get) => ({
     socket.off("stopTyping");
     socket.off("messageSeen");
     socket.off("chatCreated");
+    socket.off("profileUpdated");
+
+    // Handle profile update across the app
+    socket.on("profileUpdated", ({ userId, profilePic }) => {
+      // 1. Update chats list — handle BOTH flat fields AND participants array shapes
+      set((state) => {
+        const updatedChats = state.chats.map((c) => {
+          // Shape A: flat fields (returned by getUserChats / GET /chats)
+          if (Number(c.participant_id) === Number(userId)) {
+            return { ...c, participant_profile_pic: profilePic };
+          }
+          // Shape B: participants array (returned by getChatById)
+          if (c.participants && Array.isArray(c.participants)) {
+            const updatedParticipants = c.participants.map((p) => {
+              if (Number(p.id) === Number(userId)) {
+                return { ...p, profile_pic: profilePic };
+              }
+              return p;
+            });
+            return { ...c, participants: updatedParticipants };
+          }
+          return c;
+        });
+
+        // 2. Update activeChat participants if matching
+        let updatedActiveChat = state.activeChat;
+        if (updatedActiveChat) {
+          // Handle flat shape
+          if (Number(updatedActiveChat.participant_id) === Number(userId)) {
+            updatedActiveChat = { ...updatedActiveChat, participant_profile_pic: profilePic };
+          }
+          // Handle participants array shape
+          if (updatedActiveChat.participants && Array.isArray(updatedActiveChat.participants)) {
+            const updatedParticipants = updatedActiveChat.participants.map((p) => {
+              if (Number(p.id) === Number(userId)) {
+                return { ...p, profile_pic: profilePic };
+              }
+              return p;
+            });
+            updatedActiveChat = { ...updatedActiveChat, participants: updatedParticipants };
+          }
+        }
+
+        // 3. Update messages sender profile_pic
+        const updatedMessages = state.messages.map((m) => {
+          if (Number(m.sender_id) === Number(userId)) {
+            return { ...m, profile_pic: profilePic };
+          }
+          return m;
+        });
+
+        return { chats: updatedChats, activeChat: updatedActiveChat, messages: updatedMessages };
+      });
+
+      // 4. Update auth store if matches current user
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (Number(userId) === Number(currentUserId)) {
+        useAuthStore.getState().updateUserProfileLocally({ profile_pic: profilePic, profilePic: profilePic });
+      }
+
+      // 5. Update feed store posts profile_pic
+      useFeedStore.setState((state) => ({
+        posts: state.posts.map((post) => {
+          if (Number(post.user_id) === Number(userId)) {
+            return { ...post, profile_pic: profilePic };
+          }
+          return post;
+        }),
+      }));
+    });
 
     // Handle new chat created dynamically (e.g. on follow)
     socket.on("chatCreated", (chat) => {
