@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.10.0",
     "compression": "^1.8.1",
@@ -31,7 +32,9 @@
     "multer": "^2.2.0",
     "pg": "^8.22.0",
     "redis": "^4.7.1",
-    "socket.io": "^4.8.3",
-    "@socket.io/redis-adapter": "^8.3.0"
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }

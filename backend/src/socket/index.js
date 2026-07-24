@@ -1,3 +1,4 @@
+const jwt = require("jsonwebtoken");
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { pubClient, subClient } = require("../config/redis");
 const registerEvents = require("./events");

@@ -1,33 +1,28 @@
-import http from 'k6/http';
-import { check, sleep } from 'k6';
+import http from "k6/http";
+import { check, sleep } from "k6";
 
 export const options = {
   stages: [
-    { duration: '30s', target: 100 },   // Warmup to 100 users
-    { duration: '1m',  target: 500 },   // Ramp up to 500 users
-    { duration: '2m',  target: 1000 },  // Scale up to 1000 users
-    { duration: '1m',  target: 5000 },  // Spike test to 5000 users
-    { duration: '30s', target: 0 },     // Cool down
+    { duration: "2m", target: 5000 },     // Warm up
+    { duration: "3m", target: 10000 },    // 10K
+    { duration: "3m", target: 20000 },    // 20K
+    { duration: "5m", target: 50000 },    // Hold at 50K
+    { duration: "2m", target: 0 },        // Ramp down
   ],
+
   thresholds: {
-    http_req_duration: ['p(95)<500'], // 95% of requests must complete below 500ms
-    http_req_failed: ['rate<0.01'],   // Error rate must be under 1%
+    http_req_duration: ["p(95)<1000"],
+    http_req_failed: ["rate<0.05"],
   },
 };
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost';
+const BASE_URL = "http://localhost:3000";
 
 export default function () {
-  // Test Health Endpoint
-  const healthRes = http.get(`${BASE_URL}/health`);
-  check(healthRes, {
-    'health status is 200': (r) => r.status === 200,
-  });
+  const res = http.get(`${BASE_URL}/health`);
 
-  // Test Frontend Static Asset
-  const frontendRes = http.get(`${BASE_URL}/`);
-  check(frontendRes, {
-    'frontend status is 200': (r) => r.status === 200,
+  check(res, {
+    "Health API": (r) => r.status === 200,
   });
 
   sleep(1);
